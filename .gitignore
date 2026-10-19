@@ -20,6 +20,9 @@ ENV/
 *.swp
 *.swo
 
+# Data & Encrypted test files
+*.enc
+
 # OS files
 Thumbs.db
 .DS_Store
