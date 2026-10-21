@@ -15,7 +15,8 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 async def upload_file(
     file: UploadFile = File(...),
     is_private: str = Form("false"),
-    thumbnail: str = Form("")
+    thumbnail: str = Form(""),
+    wallet_address: str = Form(...) # <--- NHẬN ĐỊA CHỈ VÍ TỪ FRONTEND
 ):
     try:
         filename = f"{uuid.uuid4()}.enc"
@@ -30,7 +31,8 @@ async def upload_file(
         data = {
             "filename": filename,
             "is_private": is_priv_bool,
-            "thumbnail": thumbnail
+            "thumbnail": thumbnail,
+            "wallet_address": wallet_address # <--- ĐÁNH DẤU CHỦ SỞ HỮU
         }
         supabase.table("photos").insert(data).execute()
 
@@ -57,9 +59,10 @@ async def download_encrypted_file(filename: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/photos")
-async def get_all_photos():
+async def get_all_photos(wallet_address: str): # <--- BẮT BUỘC PHẢI CÓ ĐỊA CHỈ VÍ MỚI CHO XEM
     try:
-        response = supabase.table("photos").select("filename, is_private, thumbnail").execute()
+        # CHỈ TRẢ VỀ NHỮNG FILE CỦA ĐÚNG VÍ NÀY
+        response = supabase.table("photos").select("filename, is_private, thumbnail").eq("wallet_address", wallet_address).execute()
         return {"photos": response.data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
