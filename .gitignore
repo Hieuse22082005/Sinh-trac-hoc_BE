@@ -22,6 +22,8 @@ ENV/
 
 # Data & Encrypted test files
 *.enc
+vault_storage/
+backend/vault_storage/
 
 # OS files
 Thumbs.db
