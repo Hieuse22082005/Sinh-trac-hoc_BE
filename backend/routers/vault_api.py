@@ -11,6 +11,7 @@ from webauthn import (
 )
 from core.database import supabase
 from webauthn.helpers import base64url_to_bytes
+from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 router = APIRouter()
 
 # ==========================================
@@ -27,7 +28,7 @@ challenges_store = {}
 
 class RegisterRequest(BaseModel):
     wallet_address: str
-
+    vault_name: str = None
 class VerifyRequest(BaseModel):
     wallet_address: str
     credential: dict
@@ -107,9 +108,14 @@ async def delete_file(filename: str):
 @router.post("/webauthn/register/generate")
 async def generate_register_options(req: RegisterRequest):
     try:
+        # Nếu Frontend gửi tên lên, dùng tên đó. Nếu không, dùng mã băm làm phương án dự phòng.
+        display_name = req.vault_name if req.vault_name else req.wallet_address
+        
         options = generate_registration_options(
-            rp_id=RP_ID, rp_name=RP_NAME,
-            user_id=req.wallet_address.encode(), user_name=req.wallet_address
+            rp_id=RP_ID, 
+            rp_name=RP_NAME,
+            user_id=req.wallet_address.encode(), 
+            user_name=display_name # Báo cho Chrome biết tên tài khoản để hiển thị
         )
         challenges_store[f"reg_{req.wallet_address}"] = options.challenge
         return Response(content=options_to_json(options), media_type="application/json")
@@ -138,12 +144,30 @@ async def verify_register(req: VerifyRequest):
 @router.post("/webauthn/auth/generate")
 async def generate_auth_options(req: RegisterRequest):
     try:
-        options = generate_authentication_options(rp_id=RP_ID)
+        # 1. Tìm chính xác các chữ ký (credential_id) thuộc về Két sắt này trong DB
+        db_passkeys = supabase.table("passkeys").select("credential_id").eq("wallet_address", req.wallet_address).execute()
+        
+        allow_credentials = []
+        if db_passkeys.data:
+            for pk in db_passkeys.data:
+                allow_credentials.append(
+                    PublicKeyCredentialDescriptor(
+                        id=bytes.fromhex(pk["credential_id"])
+                    )
+                )
+
+        # 2. Yêu cầu trình duyệt CHỈ DÙNG ĐÚNG chữ ký này (bỏ qua menu chọn dư thừa)
+        options = generate_authentication_options(
+            rp_id=RP_ID,
+            allow_credentials=allow_credentials
+        )
+        
         challenges_store[f"auth_{req.wallet_address}"] = options.challenge
         return Response(content=options_to_json(options), media_type="application/json")
     except Exception as e:
-         raise HTTPException(status_code=500, detail=str(e))
-
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 @router.post("/webauthn/auth/verify")
 async def verify_auth(req: VerifyRequest):
     try:
