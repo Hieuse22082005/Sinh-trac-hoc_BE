@@ -23,7 +23,7 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 # Cấu hình Sinh trắc học (Sửa ORIGIN nếu React của bạn chạy cổng khác)
 RP_ID = "localhost"
 RP_NAME = "Ví Két Sắt"
-ORIGIN = "http://localhost:5173"
+ORIGIN = "http://localhost:3000"
 challenges_store = {}
 
 class RegisterRequest(BaseModel):
