@@ -25,6 +25,11 @@ ENV/
 vault_storage/
 backend/vault_storage/
 
+# Distribution / packaging
+dist/
+build/
+*.spec
+
 # OS files
 Thumbs.db
 .DS_Store
