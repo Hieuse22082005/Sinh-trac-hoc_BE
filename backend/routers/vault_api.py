@@ -2,6 +2,7 @@ import os
 import uuid
 import shutil
 import traceback
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
 from pydantic import BaseModel
 from webauthn import (
@@ -21,9 +22,9 @@ STORAGE_DIR = "vault_storage"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
 # Cấu hình Sinh trắc học (Sửa ORIGIN nếu React của bạn chạy cổng khác)
-RP_ID = "localhost"
+RP_ID = "sinh-trac-hoc-fe.vercel.app"
 RP_NAME = "Ví Két Sắt"
-ORIGIN = "http://localhost:3000"
+ORIGIN = "https://sinh-trac-hoc-fe.vercel.app"
 challenges_store = {}
 
 class RegisterRequest(BaseModel):
@@ -212,3 +213,8 @@ async def verify_auth(req: VerifyRequest):
         print("=== LỖI XÁC THỰC WEBAUTHN ===")
         traceback.print_exc() # In chi tiết lỗi ra Terminal để dễ bắt bệnh
         raise HTTPException(status_code=400, detail=str(e))
+
+        # ==========================================
+# KHỞI ĐỘNG SERVER (CHẠY CỐ ĐỊNH Ở CỔNG 8000)
+# ==========================================
+        
