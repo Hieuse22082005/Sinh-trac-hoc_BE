@@ -2,9 +2,14 @@ import os
 import uuid
 import shutil
 import traceback
-
+import random
+import smtplib
+from email.mime.text import MIMEText
+from datetime import datetime, timedelta
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
 from webauthn import (
     generate_registration_options, verify_registration_response,
     generate_authentication_options, verify_authentication_response,
@@ -13,6 +18,10 @@ from webauthn import (
 from core.database import supabase
 from webauthn.helpers import base64url_to_bytes
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+
+# Tải biến môi trường từ file .env
+load_dotenv()
+
 router = APIRouter()
 
 # ==========================================
@@ -21,18 +30,27 @@ router = APIRouter()
 STORAGE_DIR = "vault_storage"
 os.makedirs(STORAGE_DIR, exist_ok=True)
 
-# Cấu hình Sinh trắc học (Sửa ORIGIN nếu React của bạn chạy cổng khác)
-RP_ID = "sinh-trac-hoc-fe.vercel.app"
 RP_NAME = "Ví Két Sắt"
+RP_ID = "sinh-trac-hoc-fe.vercel.app"
+
 ORIGIN = "https://sinh-trac-hoc-fe.vercel.app"
 challenges_store = {}
 
 class RegisterRequest(BaseModel):
     wallet_address: str
     vault_name: str = None
+
 class VerifyRequest(BaseModel):
     wallet_address: str
     credential: dict
+
+class OTPRequest(BaseModel):
+    wallet_address: str
+
+class OTPVerify(BaseModel):
+    wallet_address: str
+    otp_code: str
+    new_device_id: str
 
 # ==========================================
 # API QUẢN LÝ KÉT SẮT VÀ FILE
@@ -43,7 +61,7 @@ async def upload_file(
     file: UploadFile = File(...),
     is_private: str = Form("false"),
     thumbnail: str = Form(""),
-    wallet_address: str = Form(...) # <--- NHẬN ĐỊA CHỈ VÍ TỪ FRONTEND
+    wallet_address: str = Form(...) 
 ):
     try:
         filename = f"{uuid.uuid4()}.enc"
@@ -62,7 +80,6 @@ async def upload_file(
         supabase.table("photos").insert(data).execute()
 
         return {"filename": filename, "status": "success"}
-
     except Exception as e:
         print("=== LỖI CHI TIẾT KHI UPLOAD ===")
         traceback.print_exc()
@@ -109,14 +126,12 @@ async def delete_file(filename: str):
 @router.post("/webauthn/register/generate")
 async def generate_register_options(req: RegisterRequest):
     try:
-        # Nếu Frontend gửi tên lên, dùng tên đó. Nếu không, dùng mã băm làm phương án dự phòng.
         display_name = req.vault_name if req.vault_name else req.wallet_address
-        
         options = generate_registration_options(
             rp_id=RP_ID, 
             rp_name=RP_NAME,
             user_id=req.wallet_address.encode(), 
-            user_name=display_name # Báo cho Chrome biết tên tài khoản để hiển thị
+            user_name=display_name 
         )
         challenges_store[f"reg_{req.wallet_address}"] = options.challenge
         return Response(content=options_to_json(options), media_type="application/json")
@@ -131,7 +146,6 @@ async def verify_register(req: VerifyRequest):
             credential=req.credential, expected_challenge=expected_challenge,
             expected_rp_id=RP_ID, expected_origin=ORIGIN
         )
-        # Lưu chữ ký sinh trắc học vào Database
         supabase.table("passkeys").insert({
             "credential_id": verification.credential_id.hex(),
             "wallet_address": req.wallet_address,
@@ -145,7 +159,6 @@ async def verify_register(req: VerifyRequest):
 @router.post("/webauthn/auth/generate")
 async def generate_auth_options(req: RegisterRequest):
     try:
-        # 1. Tìm chính xác các chữ ký (credential_id) thuộc về Két sắt này trong DB
         db_passkeys = supabase.table("passkeys").select("credential_id").eq("wallet_address", req.wallet_address).execute()
         
         allow_credentials = []
@@ -157,7 +170,6 @@ async def generate_auth_options(req: RegisterRequest):
                     )
                 )
 
-        # 2. Yêu cầu trình duyệt CHỈ DÙNG ĐÚNG chữ ký này (bỏ qua menu chọn dư thừa)
         options = generate_authentication_options(
             rp_id=RP_ID,
             allow_credentials=allow_credentials
@@ -169,10 +181,10 @@ async def generate_auth_options(req: RegisterRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/webauthn/auth/verify")
 async def verify_auth(req: VerifyRequest):
     try:
-        # Lấy tất cả chữ ký của Ví này từ Database
         db_passkey = supabase.table("passkeys").select("*").eq("wallet_address", req.wallet_address).execute()
         if not db_passkey.data: 
             raise Exception("Két sắt này chưa được liên kết khuôn mặt!")
@@ -181,7 +193,6 @@ async def verify_auth(req: VerifyRequest):
         if not expected_challenge:
             raise Exception("Phiên đăng nhập hết hạn. Vui lòng tải lại trang!")
 
-        # --- FIX 1: TÌM ĐÚNG CHỮ KÝ MÀ TRÌNH DUYỆT ĐANG DÙNG ---
         req_cred_id_hex = base64url_to_bytes(req.credential["id"]).hex()
         stored_cred = None
         for key in db_passkey.data:
@@ -192,7 +203,6 @@ async def verify_auth(req: VerifyRequest):
         if not stored_cred:
             raise Exception("Thiết bị này không khớp với bất kỳ chữ ký nào trong Két!")
 
-        # --- FIX 2: XÁC MINH CHỮ KÝ ---
         verification = verify_authentication_response(
             credential=req.credential, 
             expected_challenge=expected_challenge,
@@ -202,7 +212,6 @@ async def verify_auth(req: VerifyRequest):
             credential_current_sign_count=stored_cred["sign_count"]
         )
         
-        # --- FIX 3: CẬP NHẬT BỘ ĐẾM BẢO MẬT (RẤT QUAN TRỌNG) ---
         supabase.table("passkeys").update({
             "sign_count": verification.new_sign_count
         }).eq("credential_id", stored_cred["credential_id"]).execute()
@@ -211,10 +220,79 @@ async def verify_auth(req: VerifyRequest):
     except Exception as e:
         import traceback
         print("=== LỖI XÁC THỰC WEBAUTHN ===")
-        traceback.print_exc() # In chi tiết lỗi ra Terminal để dễ bắt bệnh
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
 
-        # ==========================================
-# KHỞI ĐỘNG SERVER (CHẠY CỐ ĐỊNH Ở CỔNG 8000)
 # ==========================================
+# API XÁC THỰC OTP VÀ QUẢN LÝ THIẾT BỊ
+# ==========================================
+
+@router.post("/request-otp")
+async def request_otp(data: OTPRequest):
+    # 1. Kiểm tra ví có email khôi phục không
+    response = supabase.table('passkeys').select('recovery_email').eq('wallet_address', data.wallet_address).execute()
+    
+    if not response.data or not response.data[0].get('recovery_email'):
+        raise HTTPException(status_code=400, detail="Két sắt chưa liên kết email bảo mật. Không thể khôi phục!")
+    
+    user_email = response.data[0]['recovery_email']
+    
+    # 2. Tạo mã OTP 6 số và thời gian hết hạn (5 phút)
+    otp_code = str(random.randint(100000, 999999))
+    expires_at = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+    
+    # 3. Lưu OTP vào cơ sở dữ liệu
+    supabase.table('passkeys').update({
+        "otp_code": otp_code,
+        "otp_expires_at": expires_at
+    }).eq('wallet_address', data.wallet_address).execute()
+    
+    # 4. Gửi Email
+    try:
+        sender_email = os.getenv("SENDER_EMAIL")
+        sender_password = os.getenv("SENDER_PASSWORD")
         
+        if not sender_email or not sender_password:
+            raise Exception("Chưa cấu hình biến môi trường email")
+            
+        msg = MIMEText(f"Mã xác thực OTP Két sắt của bạn là: {otp_code}. Mã có hiệu lực trong 5 phút.")
+        msg['Subject'] = 'Xác thực đăng nhập Két sắt'
+        msg['From'] = sender_email
+        msg['To'] = user_email
+        
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+    except Exception as e:
+        print("=== LỖI GỬI EMAIL ===")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Không thể gửi email OTP. Vui lòng kiểm tra cấu hình.")
+
+    return {"message": "Mã OTP đã được gửi đến email của bạn."}
+
+@router.post("/verify-otp")
+async def verify_otp(data: OTPVerify):
+    response = supabase.table('passkeys').select('otp_code', 'otp_expires_at').eq('wallet_address', data.wallet_address).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Không tìm thấy Két sắt")
+        
+    vault = response.data[0]
+    
+    # Kiểm tra OTP và hạn sử dụng
+    if not vault.get('otp_code') or vault['otp_code'] != data.otp_code:
+        raise HTTPException(status_code=400, detail="Mã OTP không chính xác")
+        
+    # Xử lý múi giờ khi so sánh
+    expires_at = datetime.fromisoformat(vault['otp_expires_at'].replace('Z', '+00:00')).replace(tzinfo=None)
+    if expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Mã OTP đã hết hạn")
+        
+    # Xác thực thành công -> Cập nhật thiết bị mới và xóa OTP cũ
+    supabase.table('passkeys').update({
+        "active_device_id": data.new_device_id,
+        "otp_code": None,
+        "otp_expires_at": None
+    }).eq('wallet_address', data.wallet_address).execute()
+    
+    return {"status": "success", "message": "Xác thực thành công. Đã chuyển quyền sang thiết bị mới."}
