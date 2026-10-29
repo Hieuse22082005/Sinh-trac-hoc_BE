@@ -119,7 +119,7 @@ async def get_all_photos(wallet_address: str):
 @router.delete("/delete/{filename}")
 async def delete_photo(filename: str, delete_pass: str = Query(...)):
     # Mật khẩu hệ thống để chống người lạ gọi API xóa bậy (khớp với FE)
-    if delete_pass != "admin123":
+    if delete_pass != "22082005":
         raise HTTPException(status_code=403, detail="Sai mật khẩu hệ thống")
     
     try:
