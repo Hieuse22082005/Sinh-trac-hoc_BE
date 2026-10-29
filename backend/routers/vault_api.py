@@ -61,16 +61,24 @@ class OTPVerify(BaseModel):
 async def upload_file(
     file: UploadFile = File(...),
     is_private: str = Form("false"),
-    thumbnail: str = Form(""),
+    thumbnail: str = Form(""), # Đây là mật khẩu cấp 2 đã băm
     wallet_address: str = Form(...) 
 ):
     try:
-        filename = f"{uuid.uuid4()}.enc"
-        file_path = os.path.join(STORAGE_DIR, filename)
+        # 1. Tạo tên file (Lưu vào thư mục mang tên địa chỉ ví cho dễ quản lý)
+        filename = f"{wallet_address}/{uuid.uuid4()}.enc"
+        
+        # 2. Đọc dữ liệu file (Đây sẽ là chuỗi ký tự mã hóa vô nghĩa từ Frontend gửi lên)
+        file_bytes = await file.read()
 
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # 3. ĐẨY THẲNG LÊN BUCKET "vault_images" CỦA SUPABASE
+        supabase.storage.from_("vault_images").upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": "text/plain"} # Định dạng text vì ảnh đã bị mã hóa thành chuỗi
+        )
 
+        # 4. Lưu thông tin vào Database
         is_priv_bool = is_private.lower() == 'true'
         data = {
             "filename": filename,
@@ -85,7 +93,7 @@ async def upload_file(
         print("=== LỖI CHI TIẾT KHI UPLOAD ===")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 @router.get("/download/{filename}")
 async def download_encrypted_file(filename: str):
     try:
