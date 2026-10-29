@@ -116,28 +116,26 @@ async def get_all_photos(wallet_address: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/delete/{filename}")
+@router.delete("/delete/{filename:path}")
 async def delete_photo(filename: str, delete_pass: str = Query(...)):
     try:
-        # 1. KIỂM TRA MẬT KHẨU (HÃY SỬA LẠI CHỮ "123456" THÀNH MẬT KHẨU CỦA BẠN)
-        if delete_pass != "22082005":
+        # Nhớ để đúng mật khẩu của bạn ở đây (ví dụ 22082005 như trong ảnh)
+        if delete_pass != "22082005": 
             raise HTTPException(status_code=403, detail="Sai mật khẩu")
         
-        # 2. Bắn lệnh xóa file vật lý trên Supabase Storage
+        # Bắn lệnh xóa file vật lý trên Supabase Storage
         supabase.storage.from_("vault_images").remove([filename])
         
-        # 3. Bắn lệnh xóa dữ liệu dòng đó trong Database
+        # Bắn lệnh xóa dữ liệu dòng đó trong Database
         supabase.table("photos").delete().eq("filename", filename).execute()
         
         return {"status": "success", "message": "Đã tiêu hủy"}
         
     except HTTPException as he:
-        raise he # Nếu sai mật khẩu thì quăng lỗi 403 ra ngoài
+        raise he 
     except Exception as e:
         print(f"=== LỖI SẬP SERVER KHI XÓA: {str(e)} ===")
-        # Quăng lỗi 500 kèm chi tiết lỗi thật để Frontend biết
         raise HTTPException(status_code=500, detail=str(e))
-
 # ==========================================
 # API BẢO MẬT SINH TRẮC HỌC (FIDO2 / WEBAUTHN)
 # ==========================================
