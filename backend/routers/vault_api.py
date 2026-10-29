@@ -147,16 +147,18 @@ async def verify_register(req: VerifyRequest):
             credential=req.credential, expected_challenge=expected_challenge,
             expected_rp_id=RP_ID, expected_origin=ORIGIN
         )
-        supabase.table("passkeys").insert({
+        
+        # Đã đổi .insert() thành .update() và thêm .eq() để cập nhật đúng ví
+        supabase.table("passkeys").update({
             "credential_id": verification.credential_id.hex(),
-            "wallet_address": req.wallet_address,
             "public_key": verification.credential_public_key.hex(),
             "sign_count": verification.sign_count
-        }).execute()
+        }).eq("wallet_address", req.wallet_address).execute()
+        
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
+    
 @router.post("/webauthn/auth/generate")
 async def generate_auth_options(req: RegisterRequest):
     try:
