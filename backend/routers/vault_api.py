@@ -66,7 +66,7 @@ async def upload_file(
 ):
     try:
         # 1. Tạo tên file (Lưu vào thư mục mang tên địa chỉ ví cho dễ quản lý)
-        filename = f"{wallet_address}/{uuid.uuid4()}.enc"
+        filename = f"{uuid.uuid4()}.enc"
         
         # 2. Đọc dữ liệu file (Đây sẽ là chuỗi ký tự mã hóa vô nghĩa từ Frontend gửi lên)
         file_bytes = await file.read()
