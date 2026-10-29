@@ -6,7 +6,7 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response, Query
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import urllib.request
@@ -117,16 +117,24 @@ async def get_all_photos(wallet_address: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/delete/{filename}")
-async def delete_file(filename: str):
+async def delete_photo(filename: str, delete_pass: str = Query(...)):
+    # Mật khẩu hệ thống để chống người lạ gọi API xóa bậy (khớp với FE)
+    if delete_pass != "admin123":
+        raise HTTPException(status_code=403, detail="Sai mật khẩu hệ thống")
+    
     try:
-        file_path = os.path.join(STORAGE_DIR, filename)
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
+        # 1. XÓA FILE TRÊN SUPABASE STORAGE
+        supabase.storage.from_("vault_images").remove([filename])
+        
+        # 2. XÓA DÒNG DỮ LIỆU TRONG DATABASE SUPABASE
         supabase.table("photos").delete().eq("filename", filename).execute()
-        return {"status": "success"}
+        
+        return {"status": "success", "message": "Đã xóa vĩnh viễn"}
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print("=== LỖI KHI XÓA ẢNH ===")
+        print(str(e))
+        raise HTTPException(status_code=500, detail="Lỗi hệ thống khi xóa ảnh")
 
 # ==========================================
 # API BẢO MẬT SINH TRẮC HỌC (FIDO2 / WEBAUTHN)
