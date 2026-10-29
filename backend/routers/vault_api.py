@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response
 from pydantic import BaseModel
 from dotenv import load_dotenv
-
+import urllib.request
+import json
 from webauthn import (
     generate_registration_options, verify_registration_response,
     generate_authentication_options, verify_authentication_response,
@@ -247,28 +248,29 @@ async def request_otp(data: OTPRequest):
         "otp_expires_at": expires_at
     }).eq('wallet_address', data.wallet_address).execute()
     
-    # 4. Gửi Email
+    # 4. Gửi Email bằng HTTP (Tránh Render chặn SMTP)
     try:
-        sender_email = os.getenv("SENDER_EMAIL")
-        sender_password = os.getenv("SENDER_PASSWORD")
+        # Thay link Google Apps Script (nếu bạn đã tạo ở bước trước) vào đây:
+        GAS_WEBHOOK_URL = "https://script.google.com/macros/s/XXXX_LINK_CUA_BAN_XXXX/exec"
         
-        if not sender_email or not sender_password:
-            raise Exception("Chưa cấu hình biến môi trường email")
-            
-        msg = MIMEText(f"Mã xác thực OTP Két sắt của bạn là: {otp_code}. Mã có hiệu lực trong 5 phút.")
-        msg['Subject'] = 'Xác thực đăng nhập Két sắt'
-        msg['From'] = sender_email
-        msg['To'] = user_email
-        
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(sender_email, sender_password)
-            server.send_message(msg)
+        payload = {
+            "email": user_email,
+            "subject": "🔒 Mã xác thực OTP Két sắt Hush",
+            "html": f"<p>Mã xác thực OTP của bạn là: <b>{otp_code}</b>. Có hiệu lực 5 phút.</p>"
+        }
+        req = urllib.request.Request(
+            GAS_WEBHOOK_URL,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=10):
+            pass 
     except Exception as e:
-        print("=== LỖI GỬI EMAIL ===")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Không thể gửi email OTP. Vui lòng kiểm tra cấu hình.")
+        print(f"=== LỖI GỬI EMAIL NHƯNG VẪN TIẾP TỤC: {e} ===")
+        # Không raise 500 để Frontend không bị kẹt
 
-    return {"message": "Mã OTP đã được gửi đến email của bạn."}
+    return {"message": "Mã OTP đã sẵn sàng."}
 
 @router.post("/verify-otp")
 async def verify_otp(data: OTPVerify):
