@@ -253,7 +253,7 @@ async def request_otp(data: OTPRequest):
     # 4. Gửi Email bằng HTTP (Tránh Render chặn SMTP)
     try:
         # Thay link Google Apps Script (nếu bạn đã tạo ở bước trước) vào đây:
-        GAS_WEBHOOK_URL = "https://script.google.com/macros/s/XXXX_LINK_CUA_BAN_XXXX/exec"
+        GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwI5bPavKcD3WFjqD7POVyZHdhB96a1npR9Yzd8bOHWdt05SgAxh6L7WsMTfzGmMTWb/exec"
         
         payload = {
             "email": user_email,
