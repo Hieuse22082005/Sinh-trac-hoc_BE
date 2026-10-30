@@ -6,6 +6,7 @@ import random
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Response, Query
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -47,11 +48,13 @@ class VerifyRequest(BaseModel):
 
 class OTPRequest(BaseModel):
     wallet_address: str
+    email: Optional[str] = None
 
 class OTPVerify(BaseModel):
     wallet_address: str
     otp_code: str
-    new_device_id: str
+    new_device_id: Optional[str] = None  # Quan trọng: Đặt mặc định là None
+    email: Optional[str] = None
 
 # ==========================================
 # API QUẢN LÝ KÉT SẮT VÀ FILE
@@ -248,7 +251,7 @@ async def verify_auth(req: VerifyRequest):
 
 @router.post("/request-otp")
 async def request_otp(data: OTPRequest):
-    # 1. Kiểm tra ví có email khôi phục không
+    # Kiểm tra ví có email khôi phục không
     response = supabase.table('passkeys').select('recovery_email').eq('wallet_address', data.wallet_address).execute()
     
     if not response.data or not response.data[0].get('recovery_email'):
@@ -256,17 +259,17 @@ async def request_otp(data: OTPRequest):
     
     user_email = response.data[0]['recovery_email']
     
-    # 2. Tạo mã OTP 6 số và thời gian hết hạn (5 phút)
+    # Tạo mã OTP 6 số và thời gian hết hạn (5 phút)
     otp_code = str(random.randint(100000, 999999))
     expires_at = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
     
-    # 3. Lưu OTP vào cơ sở dữ liệu
+    # Lưu OTP vào cơ sở dữ liệu
     supabase.table('passkeys').update({
         "otp_code": otp_code,
         "otp_expires_at": expires_at
     }).eq('wallet_address', data.wallet_address).execute()
     
-    # 4. Gửi Email bằng HTTP (Tránh Render chặn SMTP)
+    # Gửi Email bằng HTTP (Tránh Render chặn SMTP)
     try:
         # Thay link Google Apps Script (nếu bạn đã tạo ở bước trước) vào đây:
         GAS_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwI5bPavKcD3WFjqD7POVyZHdhB96a1npR9Yzd8bOHWdt05SgAxh6L7WsMTfzGmMTWb/exec"
@@ -290,6 +293,7 @@ async def request_otp(data: OTPRequest):
 
     return {"message": "Mã OTP đã sẵn sàng."}
 
+# 3. API Xác thực OTP thông minh (Biết phân biệt Đổi Máy và Đổi Email)
 @router.post("/verify-otp")
 async def verify_otp(data: OTPVerify):
     response = supabase.table('passkeys').select('otp_code', 'otp_expires_at').eq('wallet_address', data.wallet_address).execute()
@@ -308,11 +312,22 @@ async def verify_otp(data: OTPVerify):
     if expires_at < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Mã OTP đã hết hạn")
         
-    # Xác thực thành công -> Cập nhật thiết bị mới và xóa OTP cũ
-    supabase.table('passkeys').update({
-        "active_device_id": data.new_device_id,
+    # XÁC THỰC THÀNH CÔNG -> Luôn luôn xóa OTP cũ để tránh bị dùng lại
+    update_data = {
         "otp_code": None,
         "otp_expires_at": None
-    }).eq('wallet_address', data.wallet_address).execute()
+    }
     
-    return {"status": "success", "message": "Xác thực thành công. Đã chuyển quyền sang thiết bị mới."}
+    # KIỂM TRA NGỮ CẢNH DỰA VÀO BIẾN new_device_id
+    if data.new_device_id:
+        # Nếu Frontend có gửi Thiết bị mới (Luồng Đăng nhập máy khác)
+        update_data["active_device_id"] = data.new_device_id
+        msg = "Xác thực thành công. Đã chuyển quyền sang thiết bị mới."
+    else:
+        # Nếu Frontend KHÔNG gửi Thiết bị mới (Luồng Xác minh để đổi Email)
+        msg = "Xác minh OTP thành công."
+
+    # Ghi đè vào DB
+    supabase.table('passkeys').update(update_data).eq('wallet_address', data.wallet_address).execute()
+    
+    return {"status": "success", "message": msg}
